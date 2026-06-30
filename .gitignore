@@ -1,0 +1,9 @@
+build/
+*.o
+*.a
+*.so
+*.dylib
+output/
+*.vtu
+*.csv
+.DS_Store
