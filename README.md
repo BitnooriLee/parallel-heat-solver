@@ -1,6 +1,6 @@
 # parallel-heat-solver
 
-> MPI+OpenMP finite-difference solver for 3D heat diffusion equation — domain decomposition with halo exchange, validated against TPS experiments
+> MPI+OpenMP finite-difference solver for 3D heat diffusion equation — domain decomposition with halo exchange
 
 ## Overview
 
@@ -89,22 +89,14 @@ python scripts/visualise.py output/T_final.csv
 
 ## Validation
 
-Simulation results (α, k) are compared against physical measurements from the TPS platform:
-
-| Sample | Simulated k (W/m·K) | Measured k (W/m·K) | Error |
-|---|---|---|---|
-| PTFE reference | 0.252 | 0.250 | 0.8% |
-| Stainless steel | 14.8 | 15.1 | 2.0% |
+> TODO: Simulation results will be validated against TPS experimental measurements once the solver is implemented.
+>
+> Planned: compare simulated α and k against real measurements from the HD_Intelligent platform.
 
 ---
 
 ## Scaling Results
 
-| Cores | Time (s) | Speedup | Efficiency |
-|---|---|---|---|
-| 1 | 420 | 1.0× | 100% |
-| 4 | 112 | 3.75× | 94% |
-| 8 | 58 | 7.2× | 91% |
-| 16 | 31 | 13.5× | 85% |
-
-> Grid: 1024³, 1000 time steps
+> TODO: Weak/strong scaling benchmarks will be added after MPI implementation is complete.
+>
+> Planned: 1 / 4 / 8 / 16 cores, grid sizes 256³ to 1024³.
