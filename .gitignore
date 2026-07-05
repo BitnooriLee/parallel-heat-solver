@@ -7,3 +7,4 @@ output/
 *.vtu
 *.csv
 .DS_Store
+interview_questions.md
