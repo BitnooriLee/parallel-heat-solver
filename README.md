@@ -80,141 +80,222 @@ parallel-heat-solver/
 
 ---
 
-## Build
+## Build and Setup
 
-```bash
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_MPI=ON -DENABLE_OPENMP=ON
-make -j$(nproc)
-```
-
-Built targets: `heat_serial`, `heat_openmp`, `heat_mpi`, `bench_scaling`.
-
-### Dependencies
+### 1) System dependencies
 
 | Package | Version | Notes |
 |---|---|---|
-| CMake | ≥ 3.20 | |
-| C++17 | GCC ≥ 9 / Clang ≥ 10 | |
-| Open MPI | ≥ 4.0 | `brew install open-mpi` on macOS |
-| OpenMP | bundled with compiler | `-fopenmp` |
-| Python | ≥ 3.10 | `pip install numpy scipy matplotlib pandas` |
+| CMake | >= 3.20 | |
+| C++ compiler | C++17 (GCC >= 9 / Clang >= 10) | |
+| Open MPI | >= 4.0 | macOS: `brew install open-mpi` |
+| OpenMP | compiler support | |
+| Python | >= 3.10 | for plotting/validation scripts |
+
+### 2) Python dependencies
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -r requirements.txt
+```
+
+### 3) Configure and build
+
+```bash
+mkdir -p build
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_MPI=ON -DENABLE_OPENMP=ON
+cmake --build build -j$(sysctl -n hw.ncpu)   # macOS
+# cmake --build build -j$(nproc)             # Linux
+```
+
+Built targets:
+- `heat_serial`
+- `heat_openmp`
+- `heat_mpi` (only when MPI is found)
+- `bench_scaling`
 
 ---
 
-## Run
+## Detailed Run Guide
+
+### A. Serial baseline run
 
 ```bash
-# Serial baseline (256×256, 2000 steps)
-./build/heat_serial --nx 512 --steps 2000 --alpha 1.4e-7
+./build/heat_serial \
+  --nx 512 --ny 512 \
+  --steps 2000 \
+  --alpha 1.4e-7 \
+  --out 200 \
+  --outdir output_serial
+```
 
-# OpenMP (8 threads)
-OMP_NUM_THREADS=8 ./build/heat_openmp --nx 512 --steps 2000 --threads 8
+This produces:
+- `output_serial/metadata.txt`
+- `output_serial/T_0.bin`, `T_200.bin`, ..., `T_2000.bin`
 
-# MPI (4 ranks) + OpenMP (2 threads each = 8 total cores)
-mpirun -np 4 ./build/heat_mpi --nx 1024 --steps 5000 \
-    --threads 2 --out 500 --outdir output/
+### B. OpenMP run
 
-# MPI — report speedup vs serial baseline
-mpirun -np 8 ./build/heat_mpi --nx 1024 --steps 2000 \
-    --serial-time 12.4 --profile
+```bash
+OMP_NUM_THREADS=8 ./build/heat_openmp \
+  --nx 512 --ny 512 \
+  --steps 2000 \
+  --threads 8 \
+  --out 200 \
+  --outdir output_openmp
+```
+
+Use either `OMP_NUM_THREADS` or `--threads` (both are supported).
+
+### C. MPI + OpenMP hybrid run
+
+```bash
+mpirun -np 4 ./build/heat_mpi \
+  --nx 1024 --ny 1024 \
+  --steps 5000 \
+  --threads 2 \
+  --out 500 \
+  --outdir output_mpi
+```
+
+Optional speedup reporting against a known serial time:
+
+```bash
+mpirun -np 8 ./build/heat_mpi \
+  --nx 1024 --steps 2000 \
+  --threads 2 \
+  --serial-time 12.4
 ```
 
 ---
 
-## Benchmark & Scaling
+## Benchmark and Scaling
+
+### 1) Strong scaling (fixed problem size)
 
 ```bash
-# Strong scaling (fixed 1024² grid, 1→8 threads)
-./build/bench_scaling --mode strong --grid 1024 --max-threads 8 \
-    --steps 500 --out bench_strong.csv
+./build/bench_scaling \
+  --mode strong \
+  --grid 1024 \
+  --max-threads 8 \
+  --steps 500 \
+  --out bench_strong.csv
+```
 
-# Weak scaling
-./build/bench_scaling --mode weak --max-threads 8 \
-    --steps 500 --out bench_weak.csv
+### 2) Weak scaling
 
-# Plot results
-python scripts/scaling_analysis.py --csv bench_strong.csv --save-dir docs/
-python scripts/scaling_analysis.py --csv bench_weak.csv   --save-dir docs/
+```bash
+./build/bench_scaling \
+  --mode weak \
+  --max-threads 8 \
+  --steps 500 \
+  --out bench_weak.csv
+```
 
-# Or generate demo plots without running the solver
-python scripts/scaling_analysis.py --demo --save-dir docs/
+### 3) Plot scaling results
+
+```bash
+python scripts/scaling_analysis.py --csv bench_strong.csv --save-dir docs
+python scripts/scaling_analysis.py --csv bench_weak.csv   --save-dir docs
+```
+
+Or generate synthetic demo plots:
+
+```bash
+python scripts/scaling_analysis.py --demo --save-dir docs
 ```
 
 ---
 
 ## Visualisation
 
-```bash
-# Run solver first to generate snapshots
-./build/heat_serial --nx 256 --steps 2000 --out 200 --outdir output/
+Run solver first with snapshots enabled (`--out > 0`), then:
 
+```bash
 # Single heatmap
-python scripts/visualise.py --outdir output/ --snapshot 2000 --save-dir docs/
+python scripts/visualise.py --outdir output_serial --snapshot 2000 --save-dir docs
 
 # Animation (GIF)
-python scripts/visualise.py --outdir output/ --animate --fps 10 --save-dir docs/
+python scripts/visualise.py --outdir output_serial --animate --fps 10 --save-dir docs
 
 # Temperature profile + convergence
-python scripts/visualise.py --outdir output/ --profile --convergence --save-dir docs/
+python scripts/visualise.py --outdir output_serial --profile --convergence --save-dir docs
 ```
 
 ---
 
-## TPS Validation
+## TPS Validation (with HD_Intelligent workflow)
 
-Validates the solver against the **Transient Plane Source** analytical solution —
-the same measurement principle used in the [HD_Intelligent](https://github.com/BitnooriLee/HD_Intelligent) platform.
+`validate_tps.py` supports two data sources:
+1) synthetic TPS experiment generated in-script
+2) external CSV data exported from HD_Intelligent measurements
+
+### 1) Synthetic TPS validation
 
 ```bash
-# Validate with synthetic TPS data (insulating material, default)
-python scripts/validate_tps.py --material insulator --outdir output/ --save-dir docs/
-
-# Aluminium
-python scripts/validate_tps.py --material aluminium --no-solver
-
-# Available materials: aluminium, copper, concrete, insulator, stainless_steel
+python scripts/validate_tps.py \
+  --material insulator \
+  --outdir output_serial \
+  --save-dir docs
 ```
 
-**Sample output:**
+### 2) External HD_Intelligent CSV validation
+
+```bash
+python scripts/validate_tps.py \
+  --csv hd_tps_export.csv \
+  --material insulator \
+  --power 0.1 \
+  --radius 6.4e-3 \
+  --outdir output_serial \
+  --save-dir docs
 ```
-=======================================================
-  TPS Validation Report — insulator
-=======================================================
-  Parameter            True          Fitted    Error %
-  -------------------------------------------------------
-  alpha [m²/s]     1.4000e-07    1.3982e-07     0.13%
-  lambda [W/mK]    2.0000e-01    2.0018e-01     0.09%
-=======================================================
+
+CSV header requirement:
+- time column: `time_s` (or `time`, `t`)
+- temperature-rise column: `deltaT_K` (or `deltaT`, `dT`, `delta_t`)
+
+Example:
+
+```csv
+time_s,deltaT_K
+0.2,0.0013
+0.6,0.0028
+1.0,0.0041
 ```
 
----
+### 3) TPS-ready solver run example
 
-## Scaling Results
+```bash
+./build/heat_serial \
+  --nx 128 --ny 128 \
+  --alpha 1.4e-7 \
+  --steps 500 \
+  --out 50 \
+  --T_hot 320 --T_cold 300 \
+  --outdir output_tps
 
-> Generated by `bench_scaling` + `scaling_analysis.py`.
+python scripts/validate_tps.py \
+  --material insulator \
+  --outdir output_tps \
+  --save-dir docs
+```
 
-| Threads | Grid | Time (s) | Speedup | Efficiency | GFLOP/s |
-|---:|---:|---:|---:|---:|---:|
-| 1 | 512² | 4.20 | 1.00× | 100% | 0.32 |
-| 2 | 512² | 2.18 | 1.93× | 96% | 0.61 |
-| 4 | 512² | 1.13 | 3.72× | 93% | 1.18 |
-| 8 | 512² | 0.60 | 7.02× | 88% | 2.22 |
-
-> Amdahl parallel fraction: **f = 0.975** — BC application and buffer swaps form the serial bottleneck.
+Available materials:
+- `aluminium`, `copper`, `concrete`, `insulator`, `stainless_steel`
 
 ---
 
 ## Connection to HD_Intelligent (TPS Experiments)
 
-This solver closes the loop between **numerical simulation** and **physical measurement**:
+This project is designed to connect **numerical simulation** with **TPS-based measurement workflows** used in HD_Intelligent:
 
 ```
-Physical sample  →  TPS sensor  →  HD_Intelligent   →  α, λ (measured)
-                                                              ↕  compare
-  ∂T/∂t = α∇²T  →  heat_mpi    →  T(x,y,t) field   →  α, λ (simulated)
+Physical sample -> TPS sensor -> HD_Intelligent -> alpha, lambda (measured)
+                                                     <-> compare
+dT/dt = alpha*Laplacian(T) -> heat solver -> T(x,y,t) -> alpha, lambda (simulated/fitted)
 ```
 
-The `validate_tps.py` script fits the TPS analytical model to both the
-experimental temperature-rise curve and the solver's mean-disc temperature,
-then computes the percentage error in extracted α and λ.
+The `validate_tps.py` pipeline fits the TPS analytical model to temperature-rise data
+and reports fitted thermal properties for direct comparison with reference material values.

@@ -20,11 +20,12 @@ Key features:
   - Intercept correction from curved sensor accounts for finite radius
 
 This script:
-  1. Generates synthetic TPS experimental data with Gaussian noise.
+  1. Generates synthetic TPS experimental data with Gaussian noise OR loads
+     external experimental CSV data (e.g., HD_Intelligent exports).
   2. Fits the analytical model to extract α and λ.
   3. Optionally overlays numerical FD solver disc temperature.
   4. Plots ΔT vs √t (linear), fit residuals, and a parameter sensitivity map.
-  5. Reports % error on fitted vs true material properties.
+  5. Reports % error on fitted vs true/reference material properties.
 
 Reference:
   Carslaw & Jaeger, "Conduction of Heat in Solids", 2nd ed., §10.4
@@ -84,6 +85,53 @@ def generate_experiment(material: str,
     rng   = np.random.default_rng(42)
     dT   += rng.normal(0, noise_frac * dT.max(), size=dT.shape)
     return t_arr, dT, alpha, lam
+
+
+def load_experiment_csv(csv_path: str) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Load external TPS data from CSV.
+    Required columns:
+      - time_s (or time/t)
+      - deltaT_K (or dT/delta_t)
+    """
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"CSV not found: {csv_path}")
+
+    arr = np.genfromtxt(csv_path, delimiter=",", names=True, dtype=None, encoding="utf-8")
+    if arr.size == 0:
+        raise ValueError(f"CSV has no data rows: {csv_path}")
+
+    names = {name.lower(): name for name in arr.dtype.names or []}
+
+    def pick(*candidates: str) -> str | None:
+        for c in candidates:
+            if c in names:
+                return names[c]
+        return None
+
+    t_col = pick("time_s", "time", "t")
+    dT_col = pick("deltat_k", "deltat", "dt", "delta_t", "d_t")
+
+    if t_col is None or dT_col is None:
+        raise ValueError(
+            "CSV must contain time and delta-T columns. "
+            "Accepted names: time_s/time/t and deltaT_K/deltaT/dT/delta_t."
+        )
+
+    t_arr = np.asarray(arr[t_col], dtype=float)
+    dT_arr = np.asarray(arr[dT_col], dtype=float)
+
+    if t_arr.ndim == 0:
+        t_arr = np.array([float(t_arr)])
+        dT_arr = np.array([float(dT_arr)])
+
+    mask = np.isfinite(t_arr) & np.isfinite(dT_arr) & (t_arr > 0.0)
+    t_arr, dT_arr = t_arr[mask], dT_arr[mask]
+    if t_arr.size < 5:
+        raise ValueError("Need at least 5 valid data points with time > 0.")
+
+    order = np.argsort(t_arr)
+    return t_arr[order], dT_arr[order]
 
 
 def fit_tps(t_arr: np.ndarray, dT: np.ndarray,
@@ -270,6 +318,8 @@ def main():
                         help="Max experiment time [s]")
     parser.add_argument("--noise",     type=float, default=0.02,
                         help="Relative Gaussian noise std (fraction of peak)")
+    parser.add_argument("--csv",       default=None,
+                        help="External TPS CSV with time and delta-T columns")
     parser.add_argument("--outdir",    default="output",
                         help="Solver output directory (for snapshot comparison)")
     parser.add_argument("--save-dir",  default="docs",
@@ -280,10 +330,17 @@ def main():
 
     os.makedirs(args.save_dir, exist_ok=True)
 
-    print(f"Generating synthetic TPS experiment: material={args.material}")
-    t_arr, dT_exp, alpha_true, lam_true = generate_experiment(
-        args.material, P=args.power, r0=args.radius,
-        t_max=args.tmax, noise_frac=args.noise)
+    if args.csv:
+        print(f"Loading experimental TPS CSV: {args.csv}")
+        t_arr, dT_exp = load_experiment_csv(args.csv)
+        alpha_true, lam_true, _ = MATERIALS[args.material]
+        print(f"  Loaded {len(t_arr)} points.")
+        print(f"  Reference material for error report: {args.material}")
+    else:
+        print(f"Generating synthetic TPS experiment: material={args.material}")
+        t_arr, dT_exp, alpha_true, lam_true = generate_experiment(
+            args.material, P=args.power, r0=args.radius,
+            t_max=args.tmax, noise_frac=args.noise)
 
     _, _, rho_cp = MATERIALS[args.material]
     print("Fitting TPS model ...")

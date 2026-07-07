@@ -15,7 +15,6 @@ then produces:
 
 Usage:
   python scripts/scaling_analysis.py --csv bench_results.csv
-  python scripts/scaling_analysis.py --csv mpi_timings.csv --mpi
   python scripts/scaling_analysis.py --demo    # generate synthetic data + plot
 """
 import argparse
